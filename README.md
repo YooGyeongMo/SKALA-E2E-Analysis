@@ -8,6 +8,32 @@ Adult Census Income 데이터(1994 미국 인구조사, 32,561명)로 소득 그
   make run        전체 파이프라인 실행 > output/report.md 생성
 ```
 
+## 문서 체계: 보고서가 진화해 온 흐름
+
+이 저장소의 문서들은 하나의 개선 루프를 이룬다. 읽는 순서 그대로가 프로젝트의 스토리다.
+
+```mermaid
+flowchart LR
+    V1[docs/reports/report-v1.md<br>초기 가설 검증 보고서 아카이브] --> OP[docs/opinions/
+4인 개별 의견]
+    OP --> RETRO[docs/reports/team-retrospective.md<br>팀 회고 종합: 중복 제거, 우선순위, 팩트체크]
+    RETRO --> ISSUE[이슈 #16, #22, #24]
+    ISSUE --> IMPL[v2, v3 구현 PR]
+    IMPL --> FINAL[output/report.md<br>현재의 최적 보고서]
+```
+
+| 문서 | 역할 |
+|---|---|
+| `output/report.md` | 실행할 때마다 재생성되는 **현재의 최종 분석 보고서**. 검정 7종, 평가 3층, 차트 7종의 결과가 담긴다 |
+| `docs/reports/report-v1.md` | **초기 가설 검증 시점의 보고서 아카이브**. 실행 캡처와 수치 크로스체크까지 박제되어 있어, 현재 보고서와의 차이가 곧 개선의 증거다 |
+| `docs/opinions/*.md` | 팀원 4명이 v1 보고서와 프로젝트를 검토하고 남긴 **개별 의견**. 수치(자동 보고서)와 해석(사람)을 분리하는 공간이며, 코드와 같은 절차(PR)로 작성한다 |
+| `docs/reports/team-retrospective.md` | 개별 의견을 팀이 함께 검토해 **중복을 제거하고 우선순위를 정한 종합본**. 전원 합의 4건, 로드맵 6건, 고유 지적 7건, 그리고 회고 속 추정치의 팩트체크가 담겨 있다 |
+
+핵심은 마지막 연결이다: 회고가 백로그로 끝나지 않고 이슈(#16, #22, #24)로 전환되어
+**제안 전건이 코드로 구현**됐고, 그 결과가 지금의 `output/report.md`다. 예를 들어
+회고 시점의 추정치 "초과근무 비율 약 25% vs 45%"는 구현 후 실측 "24.1% vs 49.8%
+(카이제곱 1760.4, p < 0.001)"로 확정됐다.
+
 ## 조종석 (Makefile)
 
 | 명령 | 하는 일 |
@@ -92,6 +118,8 @@ src/e2e/               파이프라인 패키지
 templates/report.md.j2 보고서 템플릿
 scripts/schedule_runner.py  schedule 자동 실행기 (--once 시연 모드)
 tests/                 단계별 단위 테스트 + E2E 스모크 (합성 데이터, 네트워크 불필요)
+docs/opinions/         팀원 개별 의견 (수치는 보고서가, 해석은 사람이)
+docs/reports/          report-v1 아카이브, 팀 회고 종합 (문서 체계 절 참조)
 ```
 
 ## 트러블슈팅 기록 (개발 중 실제로 겪은 문제들)
