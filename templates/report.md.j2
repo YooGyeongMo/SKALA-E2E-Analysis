@@ -1,0 +1,49 @@
+# {{ project_name }} 분석 보고서
+
+자동 생성: {{ generated_at }} (이 문서는 파이프라인이 렌더링한다. 직접 수정 금지)
+
+## 1. 데이터 정제 요약
+
+| 항목 | 값 |
+|---|---|
+| 원본 행수 | {{ "{:,}".format(clean.rows_raw) }} |
+| 중복 행 제거 | {{ clean.duplicate_rows }} |
+| 결측 보유 행 제거 | {{ "{:,}".format(clean.missing_rows) }} (결측 셀 {{ "{:,}".format(clean.missing_cells) }}개) |
+| 정제 후 행수 | {{ "{:,}".format(clean.rows_clean) }} |
+
+참고: 결측 토큰은 "?"로 지정해야 탐지된다. " ?"로 지정하면
+skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 된다.
+
+## 2. 가설 검정: 소득 그룹 간 {{ stats.feature }}
+
+- H0: 두 소득 그룹의 {{ stats.feature }} 평균은 같다
+- H1: 두 그룹의 평균은 다르다 (유의수준 {{ stats.alpha }})
+
+| {{ stats.target }} | n | 평균 | 중앙값 | 표준편차 |
+|---|---|---|---|---|
+{% for g in stats.group_stats -%}
+| {{ g[stats.target] }} | {{ "{:,}".format(g["count"]) }} | {{ g["mean"] }} | {{ g["median"] }} | {{ g["std"] }} |
+{% endfor %}
+- Welch t = {{ stats.t_statistic }}, p {{ stats.p_display }}, Cohen's d = {{ stats.cohens_d }}
+- 판정: H0 {{ "기각, 평균 차이 " ~ stats.mean_diff ~ "시간은 우연으로 설명되지 않는다" if stats.significant else "기각 실패" }}
+- 해석 주의: p는 차이의 실재 여부, Cohen's d는 차이의 실질 크기를 답한다.
+  표본이 크면 미미한 차이도 p가 작아지므로 두 지표를 함께 본다.
+
+## 3. 머신러닝: {{ model.model_name }}
+
+| 항목 | 값 |
+|---|---|
+| 학습/평가 분할 | {{ "{:,}".format(model.train_rows) }} / {{ "{:,}".format(model.test_rows) }} (stratify 적용) |
+| Accuracy | {{ model.accuracy }} |
+| F1 (양성 = {{ model.positive_label }}) | {{ model.f1 }} |
+| 모델 저장 | {{ model.model_path }} (재로딩 예측 일치: {{ model.reload_ok }}) |
+
+지표 선택 근거: 클래스 불균형(약 76:24)에서 accuracy만 보면 다수
+클래스로만 찍어도 높게 나오므로, 소수 클래스 성능을 반영하는 F1을
+함께 본다. MSE와 R2는 회귀 지표라 분류인 이 문제에 쓰지 않는다.
+
+## 4. 생성된 차트
+
+{% for f in figures -%}
+- {{ f }}
+{% endfor %}

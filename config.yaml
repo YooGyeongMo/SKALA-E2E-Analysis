@@ -1,0 +1,67 @@
+# =====================================================================
+# SKALA Day2 종합실습: Adult Census 소득 분석 파이프라인 설정
+# ---------------------------------------------------------------------
+# 모든 매직넘버와 경로, 컬럼 정의를 이 파일 하나에서 관리한다.
+# src/e2e/config.py의 Pydantic 모델이 실행 전에 이 파일을 검증하므로
+# 오타나 잘못된 값은 파이프라인이 돌기 전에 즉시 오류로 드러난다.
+# 데이터셋을 교체할 때도 코드 수정 없이 이 파일만 바꾸면 된다.
+# =====================================================================
+
+project:
+  name: adult-income-analysis
+  seed: 42                       # 모든 난수(분할, 모델)의 재현성 고정
+
+data:
+  # UCI Adult Census Income (1994 미국 인구조사, 32,561행 x 15컬럼)
+  url: "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"
+  raw_path: data/raw/adult.csv   # 캐시 위치, 있으면 재다운로드 생략
+  # 주의: 슬라이드의 na_values=" ?"는 skipinitialspace=True가 공백을
+  # 먼저 지우기 때문에 매칭에 실패한다(결측 0건으로 오인).
+  # "?"로 지정해야 실제 결측 4,262건이 잡힌다. (실측 검증 완료)
+  na_token: "?"
+  columns:
+    - age
+    - workclass
+    - fnlwgt
+    - education
+    - education-num
+    - marital-status
+    - occupation
+    - relationship
+    - race
+    - sex
+    - capital-gain
+    - capital-loss
+    - hours-per-week
+    - native-country
+    - income
+
+analysis:
+  target: income                 # ML 타깃이자 t-test 그룹 기준
+  positive_label: ">50K"         # F1 계산의 양성 클래스(소수 클래스)
+  hypothesis_feature: hours-per-week   # 주 가설: 소득 그룹 간 주당 근로시간
+  alpha: 0.05                    # 유의수준(검정 전에 고정, 사후 변경 금지)
+
+model:
+  test_size: 0.2                 # 8:2 분할, stratify로 클래스 비율 유지
+  numeric_features:
+    - age
+    - education-num
+    - capital-gain
+    - capital-loss
+    - hours-per-week
+  categorical_features:
+    - workclass
+    - education
+    - marital-status
+    - occupation
+    - relationship
+    - race
+    - sex
+    - native-country
+
+output:
+  dir: output
+  figures_dir: output/figures
+  report_path: output/report.md
+  model_path: output/model.joblib
