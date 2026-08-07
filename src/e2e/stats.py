@@ -146,8 +146,21 @@ def analyze(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
     feature = config.analysis.hypothesis_feature
     alpha = config.analysis.alpha
 
+    # 기술통계는 평균, 표준편차에 더해 분위수(Q1/중앙값/Q3)까지 명시한다.
+    # 평균이 대표성을 잃는 분포(이 데이터의 40시간 봉우리)에서 분위수가
+    # "전형적인 값의 범위"를 보여주는 안전장치가 된다
     group_stats = (
-        df.groupby(target)[feature].agg(["count", "mean", "median", "std"]).round(2).reset_index()
+        df.groupby(target)[feature]
+        .agg(
+            count="count",
+            mean="mean",
+            q1=lambda s: s.quantile(0.25),
+            median="median",
+            q3=lambda s: s.quantile(0.75),
+            std="std",
+        )
+        .round(2)
+        .reset_index()
     )
     labels = sorted(df[target].unique())
     # 이 분석 전체가 2그룹 비교를 전제한다. 정제 로직 변경으로 그룹이
