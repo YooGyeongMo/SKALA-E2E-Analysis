@@ -6,11 +6,11 @@ from e2e.model import train_and_save
 
 
 def test_two_models_compared(test_config: AppConfig) -> None:
-    """LogisticRegression과 RandomForest가 동일 조건에서 비교된다."""
+    """기준선, balanced 실험, RandomForest가 동일 조건에서 비교된다."""
     df, _ = load_and_clean(test_config)
     result = train_and_save(test_config, df)
     names = [row["name"] for row in result["comparison"]]
-    assert names == ["LogisticRegression", "RandomForest"]
+    assert names == ["LogisticRegression", "LogReg(balanced)", "RandomForest"]
     for row in result["comparison"]:
         assert 0.0 <= row["accuracy"] <= 1.0
         assert 0.0 <= row["f1"] <= 1.0

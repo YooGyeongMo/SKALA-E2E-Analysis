@@ -34,7 +34,13 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report, f1_score, make_scorer
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    f1_score,
+    make_scorer,
+    recall_score,
+)
 from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -146,8 +152,18 @@ def train_and_save(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
         random_state=config.project.seed,
     )
 
+    # class_weight="balanced" 실험: 현재 병목은 소수 클래스 recall이다.
+    # 소수 클래스의 오류에 더 큰 가중치를 주면 recall이 오르는 대신
+    # precision이 내려간다. 성능 개선이 아니라 "어느 방향으로 틀릴지"를
+    # 선택하는 실험이므로 recall 열을 함께 보고해 트레이드오프를 드러낸다
     candidates: list[tuple[str, Any]] = [
         ("LogisticRegression", LogisticRegression(max_iter=1000, random_state=config.project.seed)),
+        (
+            "LogReg(balanced)",
+            LogisticRegression(
+                max_iter=1000, random_state=config.project.seed, class_weight="balanced"
+            ),
+        ),
         (
             "RandomForest",
             RandomForestClassifier(
@@ -167,6 +183,7 @@ def train_and_save(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
                 "name": name,
                 "accuracy": round(float(accuracy_score(y_test, pred)), 4),
                 "f1": round(float(f1_score(y_test, pred, pos_label=positive)), 4),
+                "recall": round(float(recall_score(y_test, pred, pos_label=positive)), 4),
             }
         )
         if name == "LogisticRegression":
@@ -202,7 +219,13 @@ def train_and_save(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
         "odds": odds,
     }
     for row in comparison:
-        logger.info("[M] %s: accuracy=%.4f, F1=%.4f", row["name"], row["accuracy"], row["f1"])
+        logger.info(
+            "[M] %s: accuracy=%.4f, F1=%.4f, recall=%.4f",
+            row["name"],
+            row["accuracy"],
+            row["f1"],
+            row["recall"],
+        )
     logger.info(
         "[M] 교차검증 %d-fold: accuracy %.4f(±%.4f), F1 %.4f(±%.4f)",
         cv["folds"],

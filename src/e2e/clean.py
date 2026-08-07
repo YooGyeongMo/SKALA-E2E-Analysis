@@ -132,7 +132,31 @@ def load_and_clean(config: AppConfig) -> tuple[pd.DataFrame, dict[str, Any]]:
     missing_rows = int(df.isna().any(axis=1).sum())
     duplicate_rows = int(df.duplicated().sum())
 
+    # 정제 전 기준값: 결측이 특정 컬럼에 몰려 있으므로, 행 제거가 표본의
+    # 대표성(타깃 비율, 가설 변수 분포)을 왜곡하지 않았는지 전후로 비교한다.
+    # 왜곡됐다면 이후 모든 검정과 모델이 편향된 표본 위에 서게 된다
+    target = config.analysis.target
+    feature = config.analysis.hypothesis_feature
+    positive = config.analysis.positive_label
+    before = {
+        "positive_ratio": float((df[target] == positive).mean()) * 100,
+        "feature_mean": float(df[feature].mean()),
+        "feature_median": float(df[feature].median()),
+    }
+
     df = df.drop_duplicates().dropna().reset_index(drop=True)
+
+    preservation = {
+        "positive_ratio_before": round(before["positive_ratio"], 2),
+        "positive_ratio_after": round(float((df[target] == positive).mean()) * 100, 2),
+        "feature_mean_before": round(before["feature_mean"], 2),
+        "feature_mean_after": round(float(df[feature].mean()), 2),
+        "feature_median_before": round(before["feature_median"], 1),
+        "feature_median_after": round(float(df[feature].median()), 1),
+    }
+    preservation["ratio_shift_pp"] = round(
+        abs(preservation["positive_ratio_after"] - preservation["positive_ratio_before"]), 2
+    )
 
     meta: dict[str, Any] = {
         "rows_raw": rows_raw,
@@ -141,6 +165,7 @@ def load_and_clean(config: AppConfig) -> tuple[pd.DataFrame, dict[str, Any]]:
         "duplicate_rows": duplicate_rows,
         "rows_clean": len(df),
         "loading": loading,
+        "preservation": preservation,
     }
     logger.info(
         "[V] 원본 %s행 > 중복 %s행, 결측 보유 %s행 제거 > 정제 후 %s행 (결측 셀 %s개)",
@@ -149,5 +174,14 @@ def load_and_clean(config: AppConfig) -> tuple[pd.DataFrame, dict[str, Any]]:
         f"{missing_rows:,}",
         f"{len(df):,}",
         f"{missing_cells:,}",
+    )
+    logger.info(
+        "[V] 분포 보존: 고소득 비율 %.2f%% > %.2f%% (변화 %.2f%%p), %s 평균 %.2f > %.2f",
+        preservation["positive_ratio_before"],
+        preservation["positive_ratio_after"],
+        preservation["ratio_shift_pp"],
+        feature,
+        preservation["feature_mean_before"],
+        preservation["feature_mean_after"],
     )
     return df, meta
