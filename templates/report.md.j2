@@ -87,10 +87,10 @@ Q-Q 플롯의 계단형 이탈(정수 응답)과 꼬리 이탈은 정규분포 �
 - H0: 두 소득 그룹의 {{ stats.feature }} 평균은 같다
 - H1: 두 그룹의 평균은 다르다 (유의수준 {{ stats.alpha }}, 검정 전 고정)
 
-| {{ stats.target }} | n | 평균 | 중앙값 | 표준편차 |
-|---|---|---|---|---|
+| {{ stats.target }} | n | 평균 | Q1 | 중앙값 | Q3 | 표준편차 |
+|---|---|---|---|---|---|---|
 {% for g in stats.group_stats -%}
-| {{ g[stats.target] }} | {{ "{:,}".format(g["count"]) }} | {{ g["mean"] }} | {{ g["median"] }} | {{ g["std"] }} |
+| {{ g[stats.target] }} | {{ "{:,}".format(g["count"]) }} | {{ g["mean"] }} | {{ g["q1"] }} | {{ g["median"] }} | {{ g["q3"] }} | {{ g["std"] }} |
 {% endfor %}
 ### 검정 절차 (분석 순서 그대로)
 
