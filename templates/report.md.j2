@@ -2,7 +2,29 @@
 
 자동 생성: {{ generated_at }} (이 문서는 파이프라인이 렌더링한다. 직접 수정 금지)
 
-## 1. 데이터 정제 요약
+## 요약 (한 문단)
+
+1994년 미국 인구조사 기반 Adult 데이터 {{ "{:,}".format(clean.rows_raw) }}명을 정제해
+{{ "{:,}".format(clean.rows_clean) }}명을 분석했다. 소득 그룹 간 주당 근로시간은
+평균 {{ stats.mean_diff }}시간 차이가 있었고(Welch t, p {{ stats.p_display }}),
+효과크기는 중간 수준(Cohen's d = {{ stats.cohens_d }})이다. 다만 중앙값은 두 그룹
+모두 40시간으로 같아, 정확한 해석은 "고소득 그룹은 초과근무자 비중이 높다"이다.
+이 신호를 학습한 분류 모델은 accuracy {{ model.accuracy }}, F1 {{ model.f1 }}을 기록했다.
+
+## 1. 데이터 준비
+
+### 1.1 로딩: Pandas vs Polars ({{ clean.loading.timing_runs }}회 측정, 최솟값 비교)
+
+| 도구 | 로딩 시간 | 비고 |
+|---|---|---|
+| Pandas | {{ clean.loading.pandas_sec }}초 | skipinitialspace로 공백 처리 내장 |
+| Polars | {{ clean.loading.polars_sec }}초 | strip과 결측 치환 후처리 포함 |
+
+- Polars가 {{ clean.loading.speedup }}배 빠름 (측정 범위: 파일에서 분석 가능한 상태까지)
+- 동일성 검증: 행수 일치 = {{ clean.loading.rows_match }}, 결측 셀 수 일치 = {{ clean.loading.nulls_match }}
+- 이후 단계는 Pandas를 사용: sklearn, seaborn, scipy가 Pandas를 표준 입력으로 받는다
+
+### 1.2 정제
 
 | 항목 | 값 |
 |---|---|
@@ -11,10 +33,25 @@
 | 결측 보유 행 제거 | {{ "{:,}".format(clean.missing_rows) }} (결측 셀 {{ "{:,}".format(clean.missing_cells) }}개) |
 | 정제 후 행수 | {{ "{:,}".format(clean.rows_clean) }} |
 
-참고: 결측 토큰은 "?"로 지정해야 탐지된다. " ?"로 지정하면
-skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 된다.
+주의: 결측 토큰은 "?"로 지정해야 탐지된다. 제공된 예시처럼 " ?"로 지정하면
+skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 된다(직접 실측으로 확인).
+결측 행 제거를 택한 근거: 전체의 7.4%로 제거 후에도 표본 3만 이상, 결측이 범주
+컬럼(workclass/occupation/native-country)에 몰려 있어 최빈값 대체 시 분포 왜곡 위험.
 
-## 2. 가설 검정: 소득 그룹 간 {{ stats.feature }}
+## 2. 시각화
+
+![소득 그룹별 주당 근로시간 분포](figures/boxplot_hours_by_income.png)
+
+![소득 그룹별 주당 근로시간 밀도 분포](figures/hist_hours_density.png)
+
+두 그룹 모두 주 40시간에 봉우리가 있고(표준 근무제의 흔적), 고소득 그룹은
+40시간 오른쪽 꼬리(초과근무)가 두껍다. 평균 차이는 이 꼬리에서 온다.
+
+![수치 변수 간 상관계수](figures/heatmap_correlation.png)
+
+인터랙티브: [교육수준별 고소득 비율 (Plotly HTML)](figures/education_income_rate.html)
+
+## 3. 가설 검정: 소득 그룹 간 {{ stats.feature }}
 
 - H0: 두 소득 그룹의 {{ stats.feature }} 평균은 같다
 - H1: 두 그룹의 평균은 다르다 (유의수준 {{ stats.alpha }})
@@ -24,26 +61,71 @@ skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 �
 {% for g in stats.group_stats -%}
 | {{ g[stats.target] }} | {{ "{:,}".format(g["count"]) }} | {{ g["mean"] }} | {{ g["median"] }} | {{ g["std"] }} |
 {% endfor %}
-- Welch t = {{ stats.t_statistic }}, p {{ stats.p_display }}, Cohen's d = {{ stats.cohens_d }}
-- 판정: H0 {{ "기각, 평균 차이 " ~ stats.mean_diff ~ "시간은 우연으로 설명되지 않는다" if stats.significant else "기각 실패" }}
-- 해석 주의: p는 차이의 실재 여부, Cohen's d는 차이의 실질 크기를 답한다.
-  표본이 크면 미미한 차이도 p가 작아지므로 두 지표를 함께 본다.
+### 검정 절차 (분석 순서 그대로)
 
-## 3. 머신러닝: {{ model.model_name }}
+| 단계 | 결과 | 판단 |
+|---|---|---|
+| 1. Levene 등분산 | stat = {{ stats.levene_stat }}, p {{ stats.levene_p_display }} | 등분산 {{ "기각 > Welch 사용" if stats.equal_var_rejected else "유지" }} |
+| 2. Welch t (본검정) | t = {{ stats.t_statistic }}, p {{ stats.p_display }} | H0 {{ "기각" if stats.significant else "기각 실패" }} |
+| 3. Mann-Whitney U (교차) | U = {{ "{:,}".format(stats.mannwhitney_u | int) }}, p {{ stats.mannwhitney_p_display }} | 비모수에서도 결론 {{ "일치" if stats.cross_consistent else "불일치" }} |
+| 4. Cohen's d (효과크기) | d = {{ stats.cohens_d }} | {{ "중간" if 0.5 <= stats.cohens_d < 0.8 else ("큼" if stats.cohens_d >= 0.8 else "작음") }} 효과 |
 
-| 항목 | 값 |
-|---|---|
-| 학습/평가 분할 | {{ "{:,}".format(model.train_rows) }} / {{ "{:,}".format(model.test_rows) }} (stratify 적용) |
-| Accuracy | {{ model.accuracy }} |
-| F1 (양성 = {{ model.positive_label }}) | {{ model.f1 }} |
-| 모델 저장 | {{ model.model_path }} (재로딩 예측 일치: {{ model.reload_ok }}) |
+- 판정: 평균 차이 {{ stats.mean_diff }}시간은 우연으로 설명되지 않는다 (p {{ stats.p_display }})
+- Mann-Whitney를 병행한 이유: 근로시간 분포는 40시간 봉우리가 있는 비정규
+  분포라서, 정규성에 기대지 않는 검정으로도 같은 결론인지 확인했다
+- 해석 주의 1 (대표본 함정): 표본이 3만이면 미미한 차이도 p가 작아진다.
+  p는 "차이가 실재하는가", d는 "차이가 큰가"라는 별개의 질문에 답한다
+- 해석 주의 2 (중앙값): 두 그룹 모두 중앙값 40시간. "고소득자가 더 오래
+  일한다"가 아니라 "고소득 그룹은 초과근무자 비중이 높다"가 정확하다
 
-지표 선택 근거: 클래스 불균형(약 76:24)에서 accuracy만 보면 다수
-클래스로만 찍어도 높게 나오므로, 소수 클래스 성능을 반영하는 F1을
-함께 본다. MSE와 R2는 회귀 지표라 분류인 이 문제에 쓰지 않는다.
+### 보조가설: 소득 그룹 간 평균 연령
 
-## 4. 생성된 차트
+- 그룹 평균 {{ stats.aux.means[0] }}세 vs {{ stats.aux.means[1] }}세,
+  Welch t = {{ stats.aux.t_statistic }}, p {{ stats.aux.p_display }},
+  d = {{ stats.aux.cohens_d }} > 고소득 그룹이 평균적으로 나이가 많다
+  (경력 축적과 소득의 관계로 해석 가능, 인과 주장은 아님)
+
+## 4. 머신러닝
+
+### 4.1 모델 비교 (동일 분할, 동일 전처리)
+
+| 모델 | Accuracy | F1 (양성 = {{ model.positive_label }}) |
+|---|---|---|
+{% for row in model.comparison -%}
+| {{ row.name }} | {{ row.accuracy }} | {{ row.f1 }} |
+{% endfor %}
+- 저장(배포) 모델은 {{ model.model_name }}: 계수로 해석 가능한 기준선.
+  과제 목적이 Pipeline 구성 검증이므로 성능 우위보다 해석 가능성을 우선했다
+- 분할: 학습 {{ "{:,}".format(model.train_rows) }} / 평가 {{ "{:,}".format(model.test_rows) }} (stratify로 클래스 비율 유지)
+- 저장: {{ model.model_path }} (재로딩 예측 일치 = {{ model.reload_ok }})
+
+### 4.2 상세 평가 ({{ model.model_name }})
+
+```
+{{ model.classification_report }}
+```
+
+지표 선택 근거: 클래스 불균형(약 76:24)에서 accuracy만 보면 다수 클래스로만
+찍어도 높게 나오므로 소수 클래스 성능을 반영하는 F1을 함께 본다.
+MSE와 R2는 회귀 지표라 분류인 이 문제에 쓰지 않는다.
+
+## 5. 결론과 한계
+
+### 스토리라인
+1. 시각화: 분포에서 차이가 보인다 (박스플롯, 밀도 히스토그램)
+2. 검정: 그 차이는 통계적으로 실재하고(p {{ stats.p_display }}) 실질 크기도 중간(d = {{ stats.cohens_d }})
+3. 모델: 그 신호로 소득을 예측할 수 있다 (accuracy {{ model.accuracy }}, F1 {{ model.f1 }})
+
+### 한계 (데이터로 반박할 수 없어 기록으로 남긴다)
+- 자기응답 데이터: 측정된 것은 "응답한 근로시간"이지 실제 근로가 아니다
+- 상관이지 인과가 아니다: "오래 일해서 고소득"인지 "고소득 직종이 장시간
+  노동"인지 이 데이터로는 구분할 수 없다
+- 인구 가중치(fnlwgt) 미적용: 모집단 추정이 아닌 표본 내 그룹 비교가 목적
+- 1994년 자료: 현재 노동시장에 그대로 일반화할 수 없다
+
+## 부록: 생성 산출물
 
 {% for f in figures -%}
 - {{ f }}
-{% endfor %}
+{% endfor -%}
+- {{ model.model_path }}
