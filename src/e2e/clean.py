@@ -65,6 +65,10 @@ def _load_polars(config: AppConfig) -> pl.DataFrame:
     df = df.with_columns(
         pl.when(pl.all() == config.data.na_token).then(None).otherwise(pl.all()).name.keep()
     )
+    # 파일 끝 빈 줄 처리: Pandas는 skip_blank_lines=True가 기본이라 건너뛰지만
+    # Polars는 전부 null인 행 1개로 파싱한다(실측: 원본이 \n\n으로 끝나
+    # 32,562행 + 결측 15셀로 불일치). Pandas 기본 동작에 정렬한다.
+    df = df.filter(~pl.all_horizontal(pl.all().is_null()))
     numeric_cols = [
         "age",
         "fnlwgt",
@@ -99,7 +103,9 @@ def compare_loading(config: AppConfig) -> dict[str, Any]:
         "nulls_match": int(pdf.isna().sum().sum()) == int(plf.null_count().sum_horizontal()[0]),
         "timing_runs": TIMING_RUNS,
     }
-    logger.info(
+    # 불일치는 속도 비교의 전제가 깨진 것이므로 경고 레벨로 크게 남긴다
+    log = logger.info if (result["rows_match"] and result["nulls_match"]) else logger.warning
+    log(
         "[V] 로딩 비교(각 %d회 최솟값): Pandas %.4fs vs Polars %.4fs (%.2f배), "
         "행수 일치=%s, 결측 일치=%s",
         TIMING_RUNS,
