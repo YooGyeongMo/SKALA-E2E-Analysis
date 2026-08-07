@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 프로젝트 산출물과 데이터 (실행하면 재생성됨)
+data/
+output/
+.DS_Store
+*.joblib
+.ruff_cache/
