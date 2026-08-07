@@ -22,6 +22,9 @@ class DataConfig(BaseModel):
     url: str
     raw_path: Path
     na_token: str
+    # 외부 검증용 홀드아웃(UCI adult.test): 미지정 시 외부 평가는 생략된다
+    test_url: str | None = None
+    test_raw_path: Path | None = None
     columns: list[str] = Field(min_length=1)
 
 

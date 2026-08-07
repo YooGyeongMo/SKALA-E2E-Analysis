@@ -7,16 +7,21 @@
 - axes.unicode_minus=False: 마이너스 기호 깨짐 방지
 
 차트 구성과 각각의 이유
-1) 박스플롯: 주 가설(소득 그룹 간 근로시간)의 분포 차이를 그대로
-   보여주는 그림. "시각화 > 검정 > 모델" 스토리의 출발점
-2) 밀도 히스토그램: 그룹 크기가 76:24로 달라 빈도로 겹치면 왜곡되므로
-   밀도(stat=density, common_norm=False)로 정규화해 비교. 주 40시간
-   기준선을 함께 그려 "두 그룹 모두 40시간 봉우리"라는 발견을 드러낸다
-3) 상관 히트맵: 수치 변수 간 선형 관계 한눈에 보기(요구사항).
-   vmin/vmax를 -1~1로 고정해 색이 데이터에 따라 왜곡되지 않게 한다
-4) Plotly 교육수준별 고소득 비율(HTML): 범주가 16개라 정적 그림으로는
-   좁아서 인터랙티브가 적합. 모델이 학습할 신호(교육수준)의 강도를
-   발표에서 마우스오버로 시연할 수 있다
+1) 박스플롯(주가설): 소득 그룹 간 근로시간 분포 차이. 스토리의 출발점
+2) 밀도 히스토그램: 그룹 크기가 불균형이라 빈도로 겹치면 왜곡되므로
+   밀도(stat=density, common_norm=False)로 정규화해 비교. 표준 근무
+   기준선을 함께 그려 봉우리와 꼬리의 차이를 드러낸다
+3) 그룹 표본수 막대: 밀도 정규화가 왜 필요했는지(그룹 크기 불균형)를
+   주석이 아니라 그림으로 보여준다
+4) 상관 히트맵: 수치 변수 간 선형 관계. vmin/vmax를 -1~1로 고정해
+   색이 데이터에 따라 왜곡되지 않게 한다
+5) 박스플롯(보조가설 age): 주가설과 같은 절차(시각화 확인 후 검정)를
+   보조가설에도 적용해 분석 절차의 일관성을 지킨다
+6) Q-Q 플롯: "표준 근무 봉우리 탓에 비정규"라는 판단을 히스토그램의
+   정성적 인상이 아니라 정규분위수 대비 이탈로 보여준다.
+   Mann-Whitney 병행의 시각적 근거
+7) Plotly 교육수준별 고소득 비율(HTML): 범주가 많아 정적 그림으로는
+   좁다. 오프라인에서 열리는 자립형 HTML로 발표에서 시연한다
 """
 
 import logging
@@ -31,8 +36,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
 import seaborn as sns
+from scipy import stats as sps
 
 from e2e.config import AppConfig
+from e2e.stats import AUX_FEATURE, OVERTIME_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +48,6 @@ FIGSIZE = (8, 6)
 FIGSIZE_WIDE = (10, 6)
 DPI = 150
 PALETTE = "Set2"
-STANDARD_WORKWEEK = 40  # 주 40시간 표준 근무 기준선
 
 
 def set_korean_font() -> None:
@@ -63,32 +69,58 @@ def visualize(config: AppConfig, df: pd.DataFrame) -> list[str]:
     fig_dir = config.output.figures_dir
     fig_dir.mkdir(parents=True, exist_ok=True)
     saved: list[str] = [
-        _boxplot_hypothesis(config, df, fig_dir),
+        _boxplot(
+            config,
+            df,
+            fig_dir,
+            config.analysis.hypothesis_feature,
+            "소득 그룹별 주당 근로시간 분포",
+            "주당 근로시간 (시간)",
+            "boxplot_hours_by_income.png",
+        ),
         _histogram_density(config, df, fig_dir),
+        _group_counts(config, df, fig_dir),
         _corr_heatmap(df, fig_dir),
+        _boxplot(
+            config,
+            df,
+            fig_dir,
+            AUX_FEATURE,
+            "소득 그룹별 연령 분포 (보조가설 사전 확인)",
+            "연령 (세)",
+            "boxplot_age_by_income.png",
+        ),
+        _qq_plot(config, df, fig_dir),
         _plotly_education_rate(config, df, fig_dir),
     ]
     logger.info("[Z] 차트 %d개 저장: %s", len(saved), ", ".join(saved))
     return saved
 
 
-def _boxplot_hypothesis(config: AppConfig, df: pd.DataFrame, fig_dir: Path) -> str:
-    """주 가설의 그림: 소득 그룹별 주당 근로시간 박스플롯."""
+def _boxplot(
+    config: AppConfig,
+    df: pd.DataFrame,
+    fig_dir: Path,
+    feature: str,
+    title: str,
+    ylabel: str,
+    filename: str,
+) -> str:
+    """소득 그룹별 분포 박스플롯(주가설과 보조가설이 같은 절차를 공유)."""
     target = config.analysis.target
-    feature = config.analysis.hypothesis_feature
     fig, ax = plt.subplots(figsize=FIGSIZE)
     sns.boxplot(data=df, x=target, y=feature, hue=target, legend=False, ax=ax)
-    ax.set_title("소득 그룹별 주당 근로시간 분포")
+    ax.set_title(title)
     ax.set_xlabel("소득 그룹")
-    ax.set_ylabel("주당 근로시간 (시간)")
-    path = fig_dir / "boxplot_hours_by_income.png"
+    ax.set_ylabel(ylabel)
+    path = fig_dir / filename
     fig.savefig(path, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     return str(path)
 
 
 def _histogram_density(config: AppConfig, df: pd.DataFrame, fig_dir: Path) -> str:
-    """그룹별 근로시간 밀도 분포: 40시간 봉우리와 꼬리 차이를 드러낸다."""
+    """그룹별 근로시간 밀도 분포: 표준 근무 봉우리와 꼬리 차이를 드러낸다."""
     target = config.analysis.target
     feature = config.analysis.hypothesis_feature
     fig, ax = plt.subplots(figsize=FIGSIZE_WIDE)
@@ -102,12 +134,29 @@ def _histogram_density(config: AppConfig, df: pd.DataFrame, fig_dir: Path) -> st
         bins=40,
         ax=ax,
     )
-    ax.axvline(STANDARD_WORKWEEK, color="gray", linestyle="--", linewidth=1)
-    ax.text(STANDARD_WORKWEEK + 0.5, ax.get_ylim()[1] * 0.95, "주 40시간 표준", color="gray")
+    ax.axvline(OVERTIME_THRESHOLD, color="gray", linestyle="--", linewidth=1)
+    ax.text(OVERTIME_THRESHOLD + 0.5, ax.get_ylim()[1] * 0.95, "주 40시간 표준", color="gray")
     ax.set_title("소득 그룹별 주당 근로시간 밀도 분포 (그룹별 정규화)")
     ax.set_xlabel("주당 근로시간 (시간)")
     ax.set_ylabel("밀도")
     path = fig_dir / "hist_hours_density.png"
+    fig.savefig(path, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return str(path)
+
+
+def _group_counts(config: AppConfig, df: pd.DataFrame, fig_dir: Path) -> str:
+    """그룹 표본수 막대: 밀도 정규화가 필요했던 이유(불균형)를 그림으로."""
+    target = config.analysis.target
+    counts = df[target].value_counts().sort_index()
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+    sns.barplot(x=counts.index, y=counts.values, hue=counts.index, legend=False, ax=ax)
+    for i, v in enumerate(counts.values):
+        ax.text(i, v, f"{v:,}", ha="center", va="bottom")
+    ax.set_title("소득 그룹별 표본수 (클래스 불균형)")
+    ax.set_xlabel("소득 그룹")
+    ax.set_ylabel("표본수 (명)")
+    path = fig_dir / "bar_group_counts.png"
     fig.savefig(path, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     return str(path)
@@ -120,6 +169,25 @@ def _corr_heatmap(df: pd.DataFrame, fig_dir: Path) -> str:
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", vmin=-1, vmax=1, ax=ax)
     ax.set_title("수치 변수 간 상관계수")
     path = fig_dir / "heatmap_correlation.png"
+    fig.savefig(path, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    return str(path)
+
+
+def _qq_plot(config: AppConfig, df: pd.DataFrame, fig_dir: Path) -> str:
+    """그룹별 Q-Q 플롯: 정규분포 이탈(비모수 검정 병행의 근거)을 시각화."""
+    target = config.analysis.target
+    feature = config.analysis.hypothesis_feature
+    labels = sorted(df[target].unique())
+    fig, axes = plt.subplots(1, len(labels), figsize=FIGSIZE_WIDE)
+    for ax, label in zip(axes, labels, strict=True):
+        sps.probplot(df.loc[df[target] == label, feature], dist="norm", plot=ax)
+        ax.set_title(f"{label} 그룹 Q-Q 플롯")
+        ax.set_xlabel("이론적 정규 분위수")
+        ax.set_ylabel("관측 분위수 (시간)")
+    fig.suptitle("주당 근로시간의 정규성 점검 (직선 이탈 = 비정규)")
+    fig.tight_layout()
+    path = fig_dir / "qq_hours_by_income.png"
     fig.savefig(path, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     return str(path)

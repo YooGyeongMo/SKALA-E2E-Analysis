@@ -11,9 +11,9 @@ def test_all_charts_created(test_config: AppConfig) -> None:
     """PNG 3종과 Plotly HTML 1종이 전부 생성된다."""
     df, _ = load_and_clean(test_config)
     saved = visualize(test_config, df)
-    assert len(saved) == 4
+    assert len(saved) == 7
     suffixes = sorted(Path(p).suffix for p in saved)
-    assert suffixes == [".html", ".png", ".png", ".png"]
+    assert suffixes == [".html"] + [".png"] * 6
     for p in saved:
         path = Path(p)
         assert path.exists()
