@@ -25,5 +25,8 @@ def test_pipeline_is_idempotent(test_config: AppConfig) -> None:
     """두 번 돌려도 오류 없이 같은 정제 결과가 나온다(schedule 전제)."""
     first = run_pipeline(test_config)
     second = run_pipeline(test_config)
-    assert first["clean"] == second["clean"]
+    # 로딩 시간 측정값은 실행마다 달라지므로 멱등성 비교에서 제외한다
+    first_clean = {k: v for k, v in first["clean"].items() if k != "loading"}
+    second_clean = {k: v for k, v in second["clean"].items() if k != "loading"}
+    assert first_clean == second_clean
     assert first["stats"]["p_value"] == second["stats"]["p_value"]
