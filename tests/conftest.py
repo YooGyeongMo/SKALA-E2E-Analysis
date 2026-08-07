@@ -61,7 +61,9 @@ def fixture_csv(tmp_path_factory: pytest.TempPathFactory) -> Path:
     rows.append(rows[0])  # 중복 1행을 의도적으로 심는다
     path = tmp_path_factory.mktemp("raw") / "adult.csv"
     lines = [", ".join(r) for r in rows]  # 원본과 동일하게 쉼표 뒤 공백
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # 원본 adult.data처럼 파일 끝에 빈 줄을 둔다: Pandas는 건너뛰고 Polars는
+    # null 행으로 읽는 함정(#11)을 테스트가 재현하도록 하기 위함
+    path.write_text("\n".join(lines) + "\n\n", encoding="utf-8")
     return path
 
 
