@@ -83,13 +83,24 @@ config.yaml            모든 설정 (선언적 관리)
 src/e2e/               파이프라인 패키지
   config.py            Pydantic 검증
   extract.py           E: 다운로드 + 캐시
-  clean.py             V: 결측/중복 정제
-  stats.py             A: 기술통계 + t-test + Cohen's d
-  model.py             M: sklearn Pipeline + joblib
-  visualize.py         Z: Seaborn 차트 (한글 폰트 처리)
+  clean.py             V: Pandas vs Polars 로딩 비교 + 결측/중복 정제
+  stats.py             A: 기술통계 + 상관 + 검정 3종(Levene/Welch/Mann-Whitney) + Cohen's d
+  model.py             M: sklearn Pipeline + 모델 비교(LogReg vs RF) + joblib
+  visualize.py         Z: Seaborn PNG 3종 + Plotly HTML (한글 폰트 처리)
   report.py            R: Jinja2 보고서 렌더
   pipeline.py          run_pipeline(config) 오케스트레이터
 templates/report.md.j2 보고서 템플릿
 scripts/schedule_runner.py  schedule 자동 실행기 (--once 시연 모드)
 tests/                 단계별 단위 테스트 + E2E 스모크 (합성 데이터, 네트워크 불필요)
 ```
+
+## 트러블슈팅 기록 (개발 중 실제로 겪은 문제들)
+
+| 문제 | 원인 | 해결 |
+|---|---|---|
+| 결측이 0건으로 보임 | `na_values=" ?"`와 `skipinitialspace=True` 조합: 공백 제거가 먼저 실행되어 `" ?"`가 영원히 매칭 안 됨 | `na_values="?"`로 변경, 실측 4,262셀 확인. 두 방식을 나란히 실행해 검증 |
+| Polars 로딩 시 수치 컬럼이 문자열로 추론 | 원본 값 앞 공백(`" 39"`) 때문에 스키마 추론 실패 가능 | `infer_schema=False`로 전부 문자열로 읽고 strip 후 수치 컬럼만 명시적 캐스팅 |
+| 멱등성 테스트 간헐 실패 | 로딩 시간 측정값이 실행마다 달라짐 | 멱등성 비교에서 시간 측정 키 제외 (정제 결과와 p-value만 비교) |
+| 상관행렬 대각선이 NaN | 분산 0인 컬럼(테스트 데이터의 capital-gain)은 상관계수가 0/0으로 정의 불가 | 분산 0 컬럼을 상관 대상에서 제외 (통계적으로도 올바른 처리) |
+| CI(리눅스)에서 한글 폰트 없음 | GitHub Actions 러너에 한글 폰트 미설치 | 폰트 미탐지 시 경고만 남기고 진행하는 우아한 저하 설계 |
+| 차트가 CI에서 저장 실패 가능 | 디스플레이 없는 headless 환경 | `matplotlib.use("Agg")`를 pyplot import 전에 고정 |
