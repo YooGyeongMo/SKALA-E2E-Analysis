@@ -16,4 +16,5 @@ schedule==1.2.2
 scikit-learn==1.9.0
 scipy==1.17.1
 seaborn==0.13.2
+statsmodels==0.14.6
 types-PyYAML==6.0.12.20260724

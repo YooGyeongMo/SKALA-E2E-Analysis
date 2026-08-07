@@ -42,6 +42,19 @@ skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 �
 결측 행 제거를 택한 근거: 결측 비율이 낮아 제거 후에도 충분한 표본이 남고, 결측이
 일부 범주 컬럼에 몰려 있어 최빈값 대체 시 분포 왜곡 위험이 있다.
 
+### 1.3 정제 전후 분포 보존 검증
+
+행 제거가 표본의 대표성을 왜곡했다면 이후 모든 검정과 모델이 편향된
+표본 위에 서게 된다. 핵심 지표를 전후로 비교했다.
+
+| 지표 | 정제 전 | 정제 후 |
+|---|---|---|
+| 고소득({{ model.positive_label }}) 비율 | {{ clean.preservation.positive_ratio_before }}% | {{ clean.preservation.positive_ratio_after }}% (변화 {{ clean.preservation.ratio_shift_pp }}%p) |
+| {{ stats.feature }} 평균 | {{ clean.preservation.feature_mean_before }} | {{ clean.preservation.feature_mean_after }} |
+| {{ stats.feature }} 중앙값 | {{ clean.preservation.feature_median_before }} | {{ clean.preservation.feature_median_after }} |
+
+변화가 미미하므로 결측 행 제거가 분석 표본을 왜곡하지 않았다고 판단한다.
+
 ## 2. 시각화
 
 ![소득 그룹별 주당 근로시간 분포](figures/boxplot_hours_by_income.png)
@@ -110,6 +123,22 @@ Q-Q 플롯의 계단형 이탈(정수 응답)과 꼬리 이탈은 정규분포 �
 - 이로써 "평균 검정 > 중앙값 동일 발견 > 해석 수정 > 수정된 해석의 재검정"의
   논증 사이클이 닫힌다
 
+### 교란변수 통제: 근로시간 효과는 나이/교육의 그림자인가
+
+고소득 그룹은 평균 연령도 높고 교육수준도 높다. 단변량 검정만으로는
+"근로시간 효과"가 그 변수들의 그림자일 가능성을 배제할 수 없어,
+{{ stats.confounder.predictors[1:] | join(", ") }}을 함께 넣은 로지스틱 회귀로
+순수 효과를 분리했다 (n = {{ "{:,}".format(stats.confounder.n) }}).
+
+| 변수 | 오즈비 (1단위당) | 95% CI | p | 판정 |
+|---|---|---|---|---|
+{% for row in stats.confounder.rows -%}
+| {{ row.feature }} | {{ row.odds }} | [{{ row.ci_low }}, {{ row.ci_high }}] | {{ row.p_display }} | {{ "유의" if row.significant else "비유의" }} |
+{% endfor %}
+- {{ stats.feature }}의 신뢰구간이 1을 포함하지 않으므로, 연령과 교육수준을
+  통제한 뒤에도 근로시간의 독립적인 효과가 남는다 (그림자가 아니다)
+- 오즈비는 해당 변수 1단위(시간, 세, 교육연수) 증가당 고소득 오즈의 배수다
+
 ### 보조가설: 소득 그룹 간 평균 연령 (탐색적 보강)
 
 - 그룹 평균 {{ stats.aux.means[0] }}세 vs {{ stats.aux.means[1] }}세,
@@ -121,13 +150,17 @@ Q-Q 플롯의 계단형 이탈(정수 응답)과 꼬리 이탈은 정규분포 �
 
 ### 4.1 모델 비교 (동일 분할, 동일 전처리)
 
-| 모델 | Accuracy | F1 (양성 = {{ model.positive_label }}) |
-|---|---|---|
+| 모델 | Accuracy | F1 (양성 = {{ model.positive_label }}) | Recall |
+|---|---|---|---|
 {% for row in model.comparison -%}
-| {{ row.name }} | {{ row.accuracy }} | {{ row.f1 }} |
+| {{ row.name }} | {{ row.accuracy }} | {{ row.f1 }} | {{ row.recall }} |
 {% endfor %}
 - 저장(배포) 모델은 {{ model.model_name }}: 계수로 해석 가능한 기준선.
   과제 목적이 Pipeline 구성 검증이므로 성능 우위보다 해석 가능성을 우선했다
+- class_weight 실험 읽는 법: balanced는 소수 클래스 오류에 가중치를 줘서
+  recall이 크게 오르는 대신 accuracy가 내려간다. 성능 개선이 아니라
+  "어느 방향으로 틀릴지"의 선택지를 보여주는 실험이다 (고소득자를 놓치면
+  안 되는 업무라면 balanced, 오탐이 비싸면 기본형)
 - 분할: 학습 {{ "{:,}".format(model.train_rows) }} / 평가 {{ "{:,}".format(model.test_rows) }} (stratify로 클래스 비율 유지)
 - 저장: {{ model.model_path }} (재로딩 예측 일치 = {{ model.reload_ok }})
 

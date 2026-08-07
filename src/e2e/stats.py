@@ -31,6 +31,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 from scipy import stats as sps
 
 from e2e.config import AppConfig
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 AUX_FEATURE = "age"  # 보조가설 변수: 소득 그룹 간 평균 연령
 OVERTIME_THRESHOLD = 40  # 초과근무 기준(주 40시간 표준 근무제)
 CONFIDENCE = 0.95  # 평균 차이 신뢰구간 수준
+CONFOUNDERS = ["age", "education-num"]  # 교란 통제 변수: 연령과 교육수준
 
 
 def _cohens_d(a: pd.Series, b: pd.Series) -> float:
@@ -104,6 +106,39 @@ def _overtime_test(
     }
 
 
+def _confounder_control(
+    df: pd.DataFrame, target: str, feature: str, positive: str, alpha: float
+) -> dict[str, Any]:
+    """교란변수를 통제한 로지스틱 회귀로 가설 변수의 순수 효과를 분리한다.
+
+    단변량 t-test는 근로시간 하나만 보므로, 고소득 그룹이 나이도 많고
+    교육수준도 높다면 "근로시간 효과"가 그 변수들의 그림자일 수 있다.
+    연령과 교육수준을 함께 넣은 모델에서 근로시간의 오즈비가 여전히
+    1과 다르면(신뢰구간이 1을 포함하지 않으면), 통제 후에도 독립적인
+    효과가 남아 있다는 뜻이다. 오즈비는 해당 변수 1단위 증가당
+    고소득 오즈의 배수로 읽는다(원 단위 유지: 시간, 세, 교육연수).
+    """
+    predictors = [feature, *CONFOUNDERS]
+    x = sm.add_constant(df[predictors].astype(float))
+    y = (df[target] == positive).astype(int)
+    fitted = sm.Logit(y, x).fit(disp=0)
+    conf_int = np.exp(fitted.conf_int())
+    odds = np.exp(fitted.params)
+    rows = []
+    for name in predictors:
+        rows.append(
+            {
+                "feature": name,
+                "odds": round(float(odds[name]), 3),
+                "ci_low": round(float(conf_int.loc[name, 0]), 3),
+                "ci_high": round(float(conf_int.loc[name, 1]), 3),
+                "p_display": _p_display(float(fitted.pvalues[name])),
+                "significant": bool(fitted.pvalues[name] < alpha),
+            }
+        )
+    return {"predictors": predictors, "rows": rows, "n": int(fitted.nobs)}
+
+
 def analyze(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
     """기술통계, 상관행렬, 검정(Levene/Welch/CI/Mann-Whitney/비율)과
     보조가설을 수행해 딕셔너리로 반환한다."""
@@ -135,6 +170,8 @@ def analyze(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
     direction_consistent = mw_a_higher == mean_a_higher
     # 5) 핵심 해석의 직접 검정: 초과근무 비율
     overtime = _overtime_test(df, target, feature, labels, alpha)
+    # 5.5) 교란변수 통제: 연령/교육수준을 함께 넣어도 효과가 남는가
+    confounder = _confounder_control(df, target, feature, config.analysis.positive_label, alpha)
     # 6) 보조가설: 연령 (탐색적 보강, 다중비교 보정 없음)
     aux_a = df.loc[df[target] == labels[0], AUX_FEATURE]
     aux_b = df.loc[df[target] == labels[1], AUX_FEATURE]
@@ -167,6 +204,7 @@ def analyze(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
             ((mw_p < alpha) == (main["p_value"] < alpha)) and direction_consistent
         ),
         "overtime": overtime,
+        "confounder": confounder,
         "aux": aux,
         "corr_columns": list(corr.columns),
         "corr_rows": corr.values.tolist(),
@@ -194,5 +232,16 @@ def analyze(config: AppConfig, df: pd.DataFrame) -> dict[str, Any]:
         overtime["p_display"],
         AUX_FEATURE,
         aux["p_display"],
+    )
+    feature_row = confounder["rows"][0]
+    logger.info(
+        "[A] 교란 통제(%s): %s 오즈비 %.3f [%.3f, %.3f] p %s > 통제 후에도 %s",
+        ", ".join(CONFOUNDERS),
+        feature,
+        feature_row["odds"],
+        feature_row["ci_low"],
+        feature_row["ci_high"],
+        feature_row["p_display"],
+        "효과 유지" if feature_row["significant"] else "효과 소멸",
     )
     return result
