@@ -78,6 +78,10 @@ def test_config(fixture_csv: Path, tmp_path: Path) -> AppConfig:
     with open(project_root / "config.yaml", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     raw["data"]["raw_path"] = str(fixture_csv)
+    # 단위 테스트는 네트워크 없이 돌아야 하므로 외부 홀드아웃은 기본 비활성
+    # (외부 평가 경로는 external_csv 픽스처를 쓰는 전용 테스트에서 검증)
+    raw["data"]["test_url"] = None
+    raw["data"]["test_raw_path"] = None
     out = tmp_path / "output"
     raw["output"] = {
         "dir": str(out),
@@ -86,6 +90,21 @@ def test_config(fixture_csv: Path, tmp_path: Path) -> AppConfig:
         "model_path": str(out / "model.joblib"),
     }
     return AppConfig.model_validate(raw)
+
+
+@pytest.fixture(scope="session")
+def external_csv(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """adult.test와 같은 함정을 재현한 외부 홀드아웃 픽스처.
+
+    실물의 두 가지 함정을 그대로 심는다: 첫 줄 주석행, 라벨 끝 마침표.
+    """
+    rng = np.random.default_rng(7)
+    rows = [_make_row(rng, ">50K" if i % 4 == 0 else "<=50K") for i in range(120)]
+    lines = ["|1x3 Cross validator"]  # 실물 첫 줄과 동일한 주석행
+    lines += [", ".join(r) + "." for r in rows]  # 라벨 끝 마침표 재현
+    path = tmp_path_factory.mktemp("external") / "adult_test.csv"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
 
 
 @pytest.fixture(scope="session")

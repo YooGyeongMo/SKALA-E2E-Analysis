@@ -15,6 +15,11 @@ data:
   # UCI Adult Census Income (1994 미국 인구조사, 32,561행 x 15컬럼)
   url: "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data"
   raw_path: data/raw/adult.csv   # 캐시 위치, 있으면 재다운로드 생략
+  # 외부 검증용 홀드아웃: 학습에 한 번도 쓰지 않은 별도 파일로 최종 평가
+  # 주의 2가지(실측): 첫 줄이 주석행이라 skiprows=1 필요, 라벨 끝에
+  # 마침표가 붙어 있어(">50K.") 제거해야 학습 라벨과 매칭된다
+  test_url: "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.test"
+  test_raw_path: data/raw/adult_test.csv
   # 주의: 슬라이드의 na_values=" ?"는 skipinitialspace=True가 공백을
   # 먼저 지우기 때문에 매칭에 실패한다(결측 0건으로 오인).
   # "?"로 지정해야 실제 결측 4,262건이 잡힌다. (실측 검증 완료)

@@ -4,12 +4,16 @@
 
 ## 요약 (한 문단)
 
-1994년 미국 인구조사 기반 Adult 데이터 {{ "{:,}".format(clean.rows_raw) }}명을 정제해
-{{ "{:,}".format(clean.rows_clean) }}명을 분석했다. 소득 그룹 간 주당 근로시간은
-평균 {{ stats.mean_diff }}시간 차이가 있었고(Welch t, p {{ stats.p_display }}),
-효과크기는 중간 수준(Cohen's d = {{ stats.cohens_d }})이다. 다만 중앙값은 두 그룹
-모두 40시간으로 같아, 정확한 해석은 "고소득 그룹은 초과근무자 비중이 높다"이다.
-이 신호를 학습한 분류 모델은 accuracy {{ model.accuracy }}, F1 {{ model.f1 }}을 기록했다.
+{{ "{:,}".format(clean.rows_raw) }}명을 정제해 {{ "{:,}".format(clean.rows_clean) }}명을 분석했다.
+소득 그룹 간 주당 근로시간은 평균 {{ stats.mean_diff }}시간 차이가 있었고
+(Welch t, p {{ stats.p_display }}, 95% CI [{{ stats.ci_low }}, {{ stats.ci_high }}]시간),
+효과크기는 중간 수준(Cohen's d = {{ stats.cohens_d }})이다. 중앙값은 두 그룹 모두
+40시간으로 같았으며, 초과근무(주 {{ stats.overtime.threshold }}시간 초과) 비율은
+{% for label, rate in stats.overtime.rates.items() %}{{ label }} {{ rate }}%{{ ", " if not loop.last }}{% endfor %}로
+비율 차이 역시 유의했다(카이제곱 p {{ stats.overtime.p_display }}).
+따라서 정확한 해석은 "고소득 그룹은 초과근무자 비중이 높다"이다.
+이 신호를 학습한 분류 모델은 내부 평가 accuracy {{ model.accuracy }}, F1 {{ model.f1 }},
+{% if model.external %}외부 홀드아웃({{ "{:,}".format(model.external.rows) }}행) 평가 accuracy {{ model.external.accuracy }}, F1 {{ model.external.f1 }}을 기록했다.{% endif %}
 
 ## 1. 데이터 준비
 
@@ -35,8 +39,8 @@
 
 주의: 결측 토큰은 "?"로 지정해야 탐지된다. 제공된 예시처럼 " ?"로 지정하면
 skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 된다(직접 실측으로 확인).
-결측 행 제거를 택한 근거: 전체의 7.4%로 제거 후에도 표본 3만 이상, 결측이 범주
-컬럼(workclass/occupation/native-country)에 몰려 있어 최빈값 대체 시 분포 왜곡 위험.
+결측 행 제거를 택한 근거: 결측 비율이 낮아 제거 후에도 충분한 표본이 남고, 결측이
+일부 범주 컬럼에 몰려 있어 최빈값 대체 시 분포 왜곡 위험이 있다.
 
 ## 2. 시각화
 
@@ -47,14 +51,28 @@ skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 �
 두 그룹 모두 주 40시간에 봉우리가 있고(표준 근무제의 흔적), 고소득 그룹은
 40시간 오른쪽 꼬리(초과근무)가 두껍다. 평균 차이는 이 꼬리에서 온다.
 
+![소득 그룹별 표본수](figures/bar_group_counts.png)
+
+그룹 크기가 불균형이므로 위 밀도 차트는 그룹별 정규화를 적용했고,
+아래 ML 지표에서 accuracy와 F1을 병행하는 근거도 이 불균형이다.
+
 ![수치 변수 간 상관계수](figures/heatmap_correlation.png)
+
+![소득 그룹별 연령 분포](figures/boxplot_age_by_income.png)
+
+보조가설(연령)도 주가설과 같은 절차를 따른다: 분포를 먼저 눈으로 확인한 뒤 검정한다.
+
+![주당 근로시간 정규성 점검](figures/qq_hours_by_income.png)
+
+Q-Q 플롯의 계단형 이탈(정수 응답)과 꼬리 이탈은 정규분포 가정이 어렵다는
+시각적 근거다. 아래에서 비모수 검정(Mann-Whitney)을 병행하는 이유가 된다.
 
 인터랙티브: [교육수준별 고소득 비율 (Plotly HTML)](figures/education_income_rate.html)
 
 ## 3. 가설 검정: 소득 그룹 간 {{ stats.feature }}
 
 - H0: 두 소득 그룹의 {{ stats.feature }} 평균은 같다
-- H1: 두 그룹의 평균은 다르다 (유의수준 {{ stats.alpha }})
+- H1: 두 그룹의 평균은 다르다 (유의수준 {{ stats.alpha }}, 검정 전 고정)
 
 | {{ stats.target }} | n | 평균 | 중앙값 | 표준편차 |
 |---|---|---|---|---|
@@ -63,27 +81,41 @@ skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 �
 {% endfor %}
 ### 검정 절차 (분석 순서 그대로)
 
-| 단계 | 결과 | 판단 |
-|---|---|---|
-| 1. Levene 등분산 | stat = {{ stats.levene_stat }}, p {{ stats.levene_p_display }} | 등분산 {{ "기각 > Welch 사용" if stats.equal_var_rejected else "유지" }} |
-| 2. Welch t (본검정) | t = {{ stats.t_statistic }}, p {{ stats.p_display }} | H0 {{ "기각" if stats.significant else "기각 실패" }} |
-| 3. Mann-Whitney U (교차) | U = {{ "{:,}".format(stats.mannwhitney_u | int) }}, p {{ stats.mannwhitney_p_display }} | 비모수에서도 결론 {{ "일치" if stats.cross_consistent else "불일치" }} |
-| 4. Cohen's d (효과크기) | d = {{ stats.cohens_d }} | {{ "중간" if 0.5 <= stats.cohens_d < 0.8 else ("큼" if stats.cohens_d >= 0.8 else "작음") }} 효과 |
+| 단계 | 검정 대상 | 결과 | 판단 |
+|---|---|---|---|
+| 1. Levene | 분산의 동일성 | stat = {{ stats.levene_stat }}, p {{ stats.levene_p_display }} | 등분산 {{ "기각 > Welch 사용" if stats.equal_var_rejected else "유지" }} |
+| 2. Welch t (본검정) | 평균 차이 | t = {{ stats.t_statistic }}, p {{ stats.p_display }} | H0 {{ "기각" if stats.significant else "기각 실패" }} |
+| 3. 95% 신뢰구간 | 평균 차이의 범위 | [{{ stats.ci_low }}, {{ stats.ci_high }}]시간 | 0을 포함하지 않음 = 차이 실재와 일관 |
+| 4. Mann-Whitney U | 순위(분포 위치) | U = {{ "{:,}".format(stats.mannwhitney_u | int) }}, p {{ stats.mannwhitney_p_display }} | 유의성과 방향 모두 {{ "일치" if stats.cross_consistent else "불일치" }} |
+| 5. Cohen's d | 효과의 실질 크기 | d = {{ stats.cohens_d }} | {{ "중간" if 0.5 <= stats.cohens_d < 0.8 else ("큼" if stats.cohens_d >= 0.8 else "작음") }} 효과 |
 
-- 판정: 평균 차이 {{ stats.mean_diff }}시간은 우연으로 설명되지 않는다 (p {{ stats.p_display }})
-- Mann-Whitney를 병행한 이유: 근로시간 분포는 40시간 봉우리가 있는 비정규
-  분포라서, 정규성에 기대지 않는 검정으로도 같은 결론인지 확인했다
-- 해석 주의 1 (대표본 함정): 표본이 3만이면 미미한 차이도 p가 작아진다.
-  p는 "차이가 실재하는가", d는 "차이가 큰가"라는 별개의 질문에 답한다
-- 해석 주의 2 (중앙값): 두 그룹 모두 중앙값 40시간. "고소득자가 더 오래
-  일한다"가 아니라 "고소득 그룹은 초과근무자 비중이 높다"가 정확하다
+- 역할 구분: Welch t는 평균을, Mann-Whitney는 순위(분포의 위치)를 검정하므로
+  같은 가설의 반복이 아니다. 근로시간처럼 40시간 봉우리가 있는 비정규 분포에서
+  정규성에 기대지 않는 방법으로도 같은 방향의 결론이 나오는지 확인하는 용도다
+- 해석 주의 (대표본 함정): 표본이 크면 미미한 차이도 p가 작아진다.
+  p는 "차이가 실재하는가", 신뢰구간과 d는 "차이가 얼마나 큰가"에 답한다
 
-### 보조가설: 소득 그룹 간 평균 연령
+### 핵심 해석의 직접 검정: 초과근무 비율
+
+중앙값이 두 그룹 모두 40시간이므로 "고소득자가 더 오래 일한다"는 서술은
+부정확하다. 수정된 해석("고소득 그룹은 초과근무자 비중이 높다")을 비중
+그 자체로 검정했다: 주 {{ stats.overtime.threshold }}시간 초과 여부로 이진화 후 카이제곱 독립성 검정.
+
+| 그룹 | 초과근무 비율 |
+|---|---|
+{% for label, rate in stats.overtime.rates.items() -%}
+| {{ label }} | {{ rate }}% |
+{% endfor %}
+- 카이제곱 = {{ stats.overtime.chi2 }}, p {{ stats.overtime.p_display }} > 비율 차이 {{ "유의" if stats.overtime.significant else "비유의" }}
+- 이로써 "평균 검정 > 중앙값 동일 발견 > 해석 수정 > 수정된 해석의 재검정"의
+  논증 사이클이 닫힌다
+
+### 보조가설: 소득 그룹 간 평균 연령 (탐색적 보강)
 
 - 그룹 평균 {{ stats.aux.means[0] }}세 vs {{ stats.aux.means[1] }}세,
-  Welch t = {{ stats.aux.t_statistic }}, p {{ stats.aux.p_display }},
-  d = {{ stats.aux.cohens_d }} > 고소득 그룹이 평균적으로 나이가 많다
-  (경력 축적과 소득의 관계로 해석 가능, 인과 주장은 아님)
+  Welch t = {{ stats.aux.t_statistic }}, p {{ stats.aux.p_display }}, d = {{ stats.aux.cohens_d }}
+- 한계 명시: 이 검정은 탐색적 보강 목적이며 다중비교 보정을 적용하지 않았다.
+  주가설과 동등한 근거로 사용하지 않는다
 
 ## 4. 머신러닝
 
@@ -99,22 +131,53 @@ skipinitialspace가 공백을 먼저 제거해 결측 0건으로 오인하게 �
 - 분할: 학습 {{ "{:,}".format(model.train_rows) }} / 평가 {{ "{:,}".format(model.test_rows) }} (stratify로 클래스 비율 유지)
 - 저장: {{ model.model_path }} (재로딩 예측 일치 = {{ model.reload_ok }})
 
-### 4.2 상세 평가 ({{ model.model_name }})
+### 4.2 평가의 3층 구조
+
+| 층 | 목적 | 결과 |
+|---|---|---|
+| 단일 분할 (8:2) | 기본 평가 | accuracy {{ model.accuracy }}, F1 {{ model.f1 }} |
+| Stratified {{ model.cv.folds }}-fold 교차검증 | 분할 운 제거, 안정성 | accuracy {{ model.cv.accuracy_mean }} (표준편차 {{ model.cv.accuracy_std }}), F1 {{ model.cv.f1_mean }} (표준편차 {{ model.cv.f1_std }}) |
+{% if model.external -%}
+| 외부 홀드아웃 (adult.test {{ "{:,}".format(model.external.rows) }}행) | 일반화 성능의 정직한 확인 | accuracy {{ model.external.accuracy }}, F1 {{ model.external.f1 }} |
+{% endif %}
+{% if model.external -%}
+- 외부 검증 주의사항(실측 함정): adult.test는 첫 줄이 주석행이고 라벨 끝에
+  마침표가 붙어 있어(">50K.") 전처리 없이 평가하면 정확도가 0으로 무너진다
+- 내부와 외부 성능이 비슷하면 과적합 없이 일반화되고 있다는 증거다
+{% endif %}
+
+### 4.3 상세 평가 ({{ model.model_name }})
 
 ```
 {{ model.classification_report }}
 ```
 
-지표 선택 근거: 클래스 불균형(약 76:24)에서 accuracy만 보면 다수 클래스로만
-찍어도 높게 나오므로 소수 클래스 성능을 반영하는 F1을 함께 본다.
+지표 선택 근거: 클래스 불균형에서 accuracy만 보면 다수 클래스로만 찍어도
+높게 나오므로 소수 클래스 성능을 반영하는 F1을 함께 본다.
 MSE와 R2는 회귀 지표라 분류인 이 문제에 쓰지 않는다.
+
+### 4.4 모델이 배운 것 (오즈비 해석)
+
+수치 변수 간 상관이 약한데도 분류가 잘 되는 이유를 모델 계수로 확인한다.
+오즈비가 1보다 크면 고소득 확률을 올리는 피처, 작으면 내리는 피처다
+(수치 피처는 1 표준편차 증가당, 범주 피처는 해당 범주일 때).
+
+| 고소득 확률을 올리는 상위 | 오즈비 | 내리는 상위 | 오즈비 |
+|---|---|---|---|
+{% for i in range(model.odds.top | length) -%}
+| {{ model.odds.top[i].feature }} | {{ model.odds.top[i].odds }} | {{ model.odds.bottom[i].feature }} | {{ model.odds.bottom[i].odds }} |
+{% endfor %}
+- 상관 히트맵에서 세운 가설(신호는 범주 변수에 있다)을 모델이 배운
+  내용으로 확인하는 단계다. 단변량 검정에서 유의한 변수가 다변량 모델에서
+  반드시 최상위 기여 피처인 것은 아니다
 
 ## 5. 결론과 한계
 
 ### 스토리라인
-1. 시각화: 분포에서 차이가 보인다 (박스플롯, 밀도 히스토그램)
-2. 검정: 그 차이는 통계적으로 실재하고(p {{ stats.p_display }}) 실질 크기도 중간(d = {{ stats.cohens_d }})
-3. 모델: 그 신호로 소득을 예측할 수 있다 (accuracy {{ model.accuracy }}, F1 {{ model.f1 }})
+1. 시각화: 분포에서 차이가 보인다 (박스플롯, 밀도 히스토그램, Q-Q 플롯)
+2. 검정: 평균 차이가 실재하고(p {{ stats.p_display }}, CI [{{ stats.ci_low }}, {{ stats.ci_high }}]) 실질 크기도 중간(d = {{ stats.cohens_d }}),
+   수정된 해석(초과근무 비중)도 비율 검정으로 확인했다(p {{ stats.overtime.p_display }})
+3. 모델: 그 신호로 소득을 예측한다 (내부 {{ model.accuracy }}{% if model.external %} / 외부 {{ model.external.accuracy }}{% endif %})
 
 ### 한계 (데이터로 반박할 수 없어 기록으로 남긴다)
 - 자기응답 데이터: 측정된 것은 "응답한 근로시간"이지 실제 근로가 아니다
@@ -122,6 +185,7 @@ MSE와 R2는 회귀 지표라 분류인 이 문제에 쓰지 않는다.
   노동"인지 이 데이터로는 구분할 수 없다
 - 인구 가중치(fnlwgt) 미적용: 모집단 추정이 아닌 표본 내 그룹 비교가 목적
 - 1994년 자료: 현재 노동시장에 그대로 일반화할 수 없다
+- 보조가설은 다중비교 보정 없는 탐색적 결과다
 
 ## 부록: 생성 산출물
 
