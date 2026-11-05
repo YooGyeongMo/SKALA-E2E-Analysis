@@ -11,13 +11,27 @@ from diagrams import Cluster, Diagram, Edge
 from diagrams.generic.storage import Storage
 from diagrams.onprem.ci import GithubActions
 from diagrams.onprem.vcs import Github
-from diagrams.programming.flowchart import Delay, Document, InputOutput, MultipleDocuments, StoredData
+from diagrams.programming.flowchart import (
+    Delay,
+    Document,
+    InputOutput,
+    MultipleDocuments,
+    StoredData,
+)
 from diagrams.programming.language import Bash, Python
 
 FONT = "Apple SD Gothic Neo"
 OUT = Path(__file__).resolve().parents[1] / "images" / "architecture"
 
-graph_attr = {"fontname": FONT, "fontsize": "15", "pad": "0.4", "nodesep": "0.55", "ranksep": "0.9", "bgcolor": "white", "splines": "spline"}
+graph_attr = {
+    "fontname": FONT,
+    "fontsize": "15",
+    "pad": "0.4",
+    "nodesep": "0.55",
+    "ranksep": "0.9",
+    "bgcolor": "white",
+    "splines": "spline",
+}
 node_attr = {"fontname": FONT, "fontsize": "12"}
 edge_attr = {"fontname": FONT, "fontsize": "11"}
 
