@@ -397,7 +397,7 @@ def run_pipeline(config: AppConfig) -> dict[str, Any]:
 | class_weight 기본값 유지 | `balanced` (recall 0.60 > 0.83) | balanced 는 개선이 아니라 "어느 쪽으로 틀릴지"의 선택. accuracy 0.85 > 0.80 | 고소득자를 40% 놓침 | 고소득자를 놓치면 안 되는 업무 (보고서에 두 결과 모두 표기) |
 | 설정을 config.yaml + Pydantic 으로 분리 | 코드 상수 | 데이터셋, 유의수준, 분할 비율을 코드 수정 없이 교체. 잘못된 값은 실행 전 실패 | 스키마 클래스 유지 비용 | 설정이 환경별로 갈라질 때 (그때 env 오버라이드 추가) |
 | 로컬 schedule 실행기 | GitHub Actions cron | 데이터와 산출물이 로컬에 있고, 멱등이라 단순 루프로 충분 | 머신이 꺼지면 실행 안 됨 | 무인 운영과 보고서 자동 커밋이 필요할 때 |
-| CI 3 OS x 2 Python 매트릭스 | ubuntu 한 개 | 팀원 4명이 각자 로컬에서 돌리므로 OS 별 폰트, 경로 차이를 PR 단계에서 잡음 | 실행 1회 약 3분 | 팀이 단일 OS 로 통일될 때 |
+| CI 3 OS x 2 Python 매트릭스 | ubuntu 한 개 | 실행 환경마다 다른 폰트, 경로 처리 차이를 PR 단계에서 미리 잡기 위해 | 실행 1회 약 3분 | 팀이 단일 OS 로 통일될 때 |
 
 더 많은 결정 기록은 [Tradeoffs](docs/wiki/Tradeoffs.md) 에 있습니다.
 
